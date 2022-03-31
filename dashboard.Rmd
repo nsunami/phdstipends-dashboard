@@ -1,0 +1,157 @@
+---
+title: "PhD Stipends Dashboard"
+output: 
+    flexdashboard::flex_dashboard:
+        css: styles.css
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(ggdist)
+library(scales)
+
+## Load Data
+stipends <- read_csv(here("data_ignore/phdstipends 2022-03-28.csv"))
+# Parse the dollar amounts 
+stipends <- stipends %>% 
+    mutate(pay = parse_number(`Overall Pay`))
+
+# Clean fiscal years
+stipends <- stipends %>% 
+    separate(`Academic Year`, c("FY_start", "FY_end")) %>%
+    mutate(FY_start = as.numeric(FY_start),
+           FY_end = as.numeric(FY_end))
+
+# Clean out extreme values
+extreme_threshold <- 100000
+filtered_out <- stipends %>% filter(pay >= extreme_threshold)
+
+# Update the data with filtered variables
+stipends <- stipends %>% filter(pay <= extreme_threshold,
+                                pay >= 0)
+pay_min <- 0
+pay_max <- stipends$pay %>% max(na.rm = TRUE)
+```
+
+
+Column {.sidebar}
+--------------------------------------------------
+
+### Data Cleaning Settings
+```{r sidebar, echo=FALSE}
+# Input panels for matching
+# inputPanel(textInput("univ_text", label = "Match by University Name"))
+inputPanel(textInput("match_text", label = "Match by Department Name"))
+
+# Year
+year_min <- stipends$FY_start %>% min(na.rm = TRUE)
+year_max <- stipends$FY_end %>% max(na.rm = TRUE)
+
+inputPanel(
+    sliderInput("year_thresholds", label = "Filter by School Year",
+                min = year_min,
+                max = year_max,
+                value = c(year_min, year_max)),
+)
+
+inputPanel(
+    titlePanel("Filter by Income"),
+        sliderInput("thresholds", label = "Filter by Income", min = 0, max = pay_max,
+                value = c(0, 100000), step = 1000, round = 3),
+)
+
+# Cleaned data
+stipends_clean <- reactive({
+    stipends %>% 
+            filter(pay >= input$thresholds[[1]],
+                   pay <= input$thresholds[[2]]) %>%
+        filter(FY_start >= input$year_thresholds[[1]],
+               FY_end <= input$year_thresholds[[2]])
+})
+
+# Matched reactive data by expression
+any_text_entered <- reactive({
+    input$univ_text 
+})
+
+stipends_matched <- reactive({
+    stipends_clean() %>%
+        mutate(department_matched = str_detect(Department, regex(input$match_text, ignore_case = TRUE))) %>%
+        mutate(matched = department_matched) %>%
+        filter(!is.na(matched))
+})
+
+matched_summary <- renderText({
+    matched_avg <- stipends_matched() %>% 
+        group_by(matched) %>%
+        summarise(mean = mean(pay)) %>% 
+        filter(matched == TRUE) %>% 
+        pull(mean) %>% unlist()
+    matched_avg_fmt <- paste0("$", format(matched_avg, big.mark = ","))
+    matched_text <- str_glue("At the departments matching: \"{input$match_text}\", students received {matched_avg_fmt}.")
+    if(input$match_text != "") return(matched_text)
+    if(input$match_text == "") return("Match by department name to explore more.")
+})
+
+## Number of entries
+entries_count <- renderText({
+    if(input$match_text == "") {
+        stipends_clean() %>% nrow
+    } else if(input$match_text != ""){
+            stipends_matched() %>% nrow()
+        }
+})
+```
+
+
+Based on `r entries_count` entries from https://www.phdstipends.com/.
+
+Column
+--------------------------------------------------
+
+### Summary {data-height=100 .summary}
+```{r, echo=FALSE}
+average_text <- renderText({
+    avg_stipend <- stipends_clean() %>% 
+        group_by() %>%
+        summarise(mean_pay = mean(pay, na.rm = TRUE)) %>%
+        unlist()
+    paste0("$", format(avg_stipend, big.mark = ","))
+})
+```
+
+
+On average, graduate students received `r average_text` per year for stipends.
+
+`r matched_summary`
+
+### Output
+
+```{r eruptions, echo=FALSE}
+renderPlot({
+    if(input$match_text != ""){
+        stipends_matched() %>%
+            ggplot(aes(x = pay, y = matched, fill = matched)) +
+            stat_halfeye() +
+            stat_dots() + 
+            scale_x_continuous(labels = label_dollar()) +
+            ylab(str_glue("Matched with \"{input$match_text}\"")) +
+            xlab("Stipend") +
+            guides(fill = FALSE) +
+            theme_minimal()
+        
+    } else if (input$match_text == "") {
+        stipends_clean() %>% 
+            ggplot(aes(x = pay)) +
+            stat_halfeye() +
+            stat_dots() +
+            ylab("Density") +
+            scale_x_continuous(labels = label_dollar()) +
+            theme_minimal()
+    }
+})
+```
+
