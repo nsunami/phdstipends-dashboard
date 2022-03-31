@@ -14,7 +14,7 @@ library(ggdist)
 library(scales)
 
 ## Load Data
-stipends <- read_csv(here("data_ignore/phdstipends 2022-03-28.csv"))
+stipends <- read_csv(here("data/phdstipends 2022-03-28.csv"))
 # Parse the dollar amounts 
 stipends <- stipends %>% 
     mutate(pay = parse_number(`Overall Pay`))
