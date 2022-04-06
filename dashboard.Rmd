@@ -44,7 +44,9 @@ Column {.sidebar}
 ```{r sidebar, echo=FALSE}
 # Input panels for matching
 # inputPanel(textInput("univ_text", label = "Match by University Name"))
-inputPanel(textInput("match_text", label = "Match by Department Name"))
+inputPanel(textInput("match_text",
+                     label = "Match by Department Name",
+                     placeholder = "e.g., \"psychology\""))
 
 # Year
 year_min <- stipends$FY_start %>% min(na.rm = TRUE)
